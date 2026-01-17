@@ -24,17 +24,24 @@ export const saveAppData = (data: AppData) => {
 };
 
 export const authService = {
-  getCurrentUser: () => getInitialData().currentUser,
+  // Validación estricta del usuario actual
+  getCurrentUser: () => {
+    const data = getInitialData();
+    const user = data.currentUser;
+    if (!user) return null;
+    
+    // Verificamos que el usuario realmente exista en la base de datos "mock"
+    return data.users.find(u => u.id === user.id && u.email === user.email) || null;
+  },
   
   loginWithGoogle: () => {
     const data = getInitialData();
-    // Simulate Google Login result
     const mockGoogleEmail = 'usuario@gmail.com';
     let user = data.users.find(u => u.email === mockGoogleEmail);
     
     if (!user) {
       user = {
-        id: Math.random().toString(36).substr(2, 9),
+        id: `user_${Math.random().toString(36).substr(2, 9)}`,
         email: mockGoogleEmail,
         role: UserRole.USER,
         isRegistered: false
@@ -47,18 +54,24 @@ export const authService = {
     return user;
   },
 
-  adminRegister: (password: string) => {
+  adminRegister: (name: string, email: string, password: string) => {
     const data = getInitialData();
+    
+    // Evitar duplicados por email
+    if (data.users.some(u => u.email === email)) {
+      throw new Error("El correo ya está registrado.");
+    }
+
     const admin: User = {
-      id: 'admin_primary_id',
-      email: 'admin@iglesia.com',
-      name: 'Administrador Principal',
+      id: `admin_${Date.now()}`,
+      email: email,
+      name: name,
       role: UserRole.ADMIN_PRIMARY,
       isRegistered: true
     };
+    
     data.users.push(admin);
     data.currentUser = admin;
-    // Password storage is mocked for this UI demo
     localStorage.setItem('admin_pass', password);
     saveAppData(data);
     return admin;
@@ -68,5 +81,7 @@ export const authService = {
     const data = getInitialData();
     data.currentUser = null;
     saveAppData(data);
+    // Limpiar rastro de sesión para evitar persistencia insegura
+    sessionStorage.removeItem('active_session_token');
   }
 };

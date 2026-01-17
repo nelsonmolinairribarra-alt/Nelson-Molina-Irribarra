@@ -58,7 +58,6 @@ const App: React.FC = () => {
   
   const [view, setView] = useState<'login' | 'register-admin' | 'forgot-password' | 'complete-profile' | 'dashboard'>('login');
   const [activeTab, setActiveTab] = useState<string>('calendars');
-  const [showWelcomeVerse, setShowWelcomeVerse] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('iglesia_malalhue_data');
@@ -66,7 +65,12 @@ const App: React.FC = () => {
       try {
         const data = JSON.parse(saved);
         setUsers(data.users || []);
-        setCurrentUser(data.currentUser || null);
+        // Validación de sesión al cargar
+        const authenticatedUser = authService.getCurrentUser();
+        if (authenticatedUser) {
+          setCurrentUser(authenticatedUser);
+          setView('dashboard');
+        }
         setCalendars(data.calendars || []);
         setPrayers(data.prayers || []);
         setMinutes(data.minutes || []);
@@ -75,7 +79,6 @@ const App: React.FC = () => {
         setNotifications(data.notifications || []);
         setChurchLogo(data.churchLogo || 'https://picsum.photos/200/200');
         setSections(data.sections || DEFAULT_SECTIONS);
-        if (data.currentUser) setView('dashboard');
       } catch (e) { console.error(e); }
     }
   }, []);
@@ -85,7 +88,34 @@ const App: React.FC = () => {
     localStorage.setItem('iglesia_malalhue_data', JSON.stringify(data));
   }, [users, currentUser, calendars, prayers, minutes, officials, treasury, notifications, churchLogo, sections]);
 
+  // FUNCIÓN DE SEGURIDAD: Verifica si el usuario que intenta realizar la acción es el mismo que está logueado
+  const validateSessionAction = (userIdRequesting: string) => {
+    if (!currentUser || currentUser.id !== userIdRequesting) {
+      alert("Error de seguridad: Sesión no válida o intento de suplantación.");
+      authService.logout();
+      setCurrentUser(null);
+      setView('login');
+      return false;
+    }
+    return true;
+  };
+
+  const handlePostPrayer = (requesterName: string, text: string) => {
+    if (!currentUser) return;
+    if (!validateSessionAction(currentUser.id)) return;
+
+    setPrayers(prev => [{ 
+      id: Date.now().toString(36), 
+      userId: currentUser.id, 
+      userName: currentUser.name || '', 
+      requesterName: requesterName, 
+      request: text, 
+      timestamp: Date.now() 
+    }, ...prev]);
+  };
+
   const handleAuthorize = (id: string) => {
+    if (!isPrimaryAdmin) return;
     setUsers(prev => prev.map(u => {
       if (u.id === id) {
         const newRole = u.role === UserRole.ADMIN_SECONDARY ? UserRole.USER : UserRole.ADMIN_SECONDARY;
@@ -106,13 +136,16 @@ const App: React.FC = () => {
       <div className="min-h-screen flex items-center justify-center p-4 bg-slate-900">
         <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl w-full max-w-md text-center">
           <div className="mb-6">
-            <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 mb-4">
-               <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-1">Palabra de Unidad</p>
-               <p className="text-xs italic text-slate-600 font-medium leading-relaxed">"¡Mirad cuán bueno y cuán delicioso es habitar los hermanos juntos en armonía!" - Salmo 133:1</p>
+            <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 mb-6">
+               <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest mb-1">Versículo de Unidad</p>
+               <p className="text-sm italic text-slate-700 font-medium leading-relaxed">
+                 "¡Mirad cuán bueno y cuán delicioso es habitar los hermanos juntos en armonía!"
+                 <span className="block mt-1 font-bold text-indigo-600 not-italic">Salmos 133:1</span>
+               </p>
             </div>
+            
             <img src={churchLogo} alt="Logo" className="w-24 h-24 mx-auto mb-4 rounded-full border-4 border-slate-50 object-cover shadow-xl" />
             <h1 className="text-xl font-bold text-slate-800 leading-tight">Misión de la Iglesia del Señor Malalhue</h1>
-            <p className="text-slate-400 font-bold mt-2 uppercase tracking-tighter text-[10px]">Unidad • Trabajo • Fe</p>
           </div>
 
           <div className="space-y-4">
@@ -130,7 +163,7 @@ const App: React.FC = () => {
             </button>
             <div className="relative py-4">
               <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-100"></div></div>
-              <div className="relative flex justify-center text-[10px] uppercase"><span className="bg-white px-2 text-slate-300 font-bold">O ACCESO ADMINISTRATIVO</span></div>
+              <div className="relative flex justify-center text-[10px] uppercase"><span className="bg-white px-2 text-slate-300 font-bold">ACCESO ADMINISTRADOR</span></div>
             </div>
             <form 
               onSubmit={(e) => {
@@ -151,7 +184,7 @@ const App: React.FC = () => {
             >
               <input required name="email" type="email" placeholder="Correo Administrador" className="w-full p-4 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50" />
               <input required name="password" type="password" placeholder="Contraseña" className="w-full p-4 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-slate-50" />
-              <button type="submit" className="w-full bg-slate-800 text-white p-4 rounded-2xl font-bold hover:bg-black shadow-lg transition active:scale-95">Entrar al Panel</button>
+              <button type="submit" className="w-full bg-slate-800 text-white p-4 rounded-2xl font-bold hover:bg-black shadow-lg transition active:scale-95">Iniciar Sesión</button>
             </form>
             <button onClick={() => setView('register-admin')} className="text-indigo-600 text-[10px] font-bold uppercase tracking-tighter hover:underline">Registrar Nuevo Administrador</button>
           </div>
@@ -168,17 +201,24 @@ const App: React.FC = () => {
           <form onSubmit={(e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
-            const admin: User = { id: 'admin_'+Date.now(), email: f.get('email') as string, name: f.get('name') as string, role: UserRole.ADMIN_PRIMARY, isRegistered: true };
-            localStorage.setItem('admin_pass', f.get('password') as string);
-            setCurrentUser(admin);
-            setUsers(prev => [...prev, admin]);
-            setView('dashboard');
+            try {
+              const admin = authService.adminRegister(
+                f.get('name') as string,
+                f.get('email') as string,
+                f.get('password') as string
+              );
+              setCurrentUser(admin);
+              setUsers(prev => [...prev, admin]);
+              setView('dashboard');
+            } catch (err: any) {
+              alert(err.message);
+            }
           }} className="space-y-4">
             <input required name="name" type="text" placeholder="Nombre completo" className="w-full p-4 border rounded-2xl outline-none" />
-            <input required name="email" type="email" placeholder="Correo electrónico" className="w-full p-4 border rounded-2xl outline-none" />
+            <input required name="email" type="email" placeholder="Correo institucional" className="w-full p-4 border rounded-2xl outline-none" />
             <input required name="password" type="password" placeholder="Crear Contraseña" className="w-full p-4 border rounded-2xl outline-none" />
             <button type="submit" className="w-full bg-indigo-600 text-white p-4 rounded-2xl font-bold shadow-lg">Crear Administrador</button>
-            <button type="button" onClick={() => setView('login')} className="w-full text-slate-400 font-bold">Cancelar</button>
+            <button type="button" onClick={() => setView('login')} className="w-full text-slate-400 font-bold">Volver</button>
           </form>
         </div>
       </div>
@@ -188,7 +228,7 @@ const App: React.FC = () => {
   return (
     <Layout 
       user={currentUser} 
-      onLogout={() => { setCurrentUser(null); setView('login'); }} 
+      onLogout={() => { authService.logout(); setCurrentUser(null); setView('login'); }} 
       logo={churchLogo} 
       notifications={notifications}
       onMarkRead={(id) => setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))}
@@ -222,7 +262,7 @@ const App: React.FC = () => {
           <CalendarManager items={calendars} officials={officials} userRole={currentUser?.role || UserRole.USER} onAddItem={(item) => setCalendars(prev => [...prev, { ...item, id: Date.now().toString(36) }])} />
         )}
         {activeTab === 'prayers' && currentUser && (
-          <PrayerWall requests={prayers} user={currentUser} officials={officials} onPost={(name, text) => setPrayers(prev => [{ id: Date.now().toString(36), userId: currentUser.id, userName: currentUser.name || '', requesterName: name, request: text, timestamp: Date.now() }, ...prev])} />
+          <PrayerWall requests={prayers} user={currentUser} officials={officials} onPost={handlePostPrayer} />
         )}
         {activeTab === 'minutes' && (
           <MinutesSection minutes={minutes} userRole={currentUser?.role || UserRole.USER} onUpload={(min) => setMinutes(prev => [{ ...min, id: Date.now().toString(36) }, ...prev])} onDelete={(id) => setMinutes(prev => prev.filter(m => m.id !== id))} />
@@ -235,23 +275,6 @@ const App: React.FC = () => {
         )}
         {activeTab === 'admin' && isPrimaryAdmin && (
           <AdminPanel users={users} sections={sections} onAuthorize={handleAuthorize} onUpdateLogo={setChurchLogo} onUpdateSections={setSections} />
-        )}
-        {!DEFAULT_SECTIONS.some(s => s.id === activeTab) && activeTab !== 'admin' && (
-          <div className="bg-white p-10 rounded-3xl shadow-sm border border-slate-100 text-center">
-             <div className="text-6xl mb-4">{currentSection?.icon}</div>
-             <h2 className="text-2xl font-bold" style={{ color: themeColor }}>{currentSection?.label}</h2>
-             <div className="mt-8 max-w-md mx-auto">
-                <p className="text-slate-500 mb-6">Sección administrable con {currentSection?.fields.length} campos configurados.</p>
-                <div className="grid grid-cols-1 gap-4 text-left">
-                  {currentSection?.fields.map(f => (
-                    <div key={f.id} className="p-4 bg-slate-50 rounded-2xl border">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase">{f.label}</p>
-                      <p className="text-sm text-slate-800 italic">Entrada de {f.type}</p>
-                    </div>
-                  ))}
-                </div>
-             </div>
-          </div>
         )}
       </div>
     </Layout>
