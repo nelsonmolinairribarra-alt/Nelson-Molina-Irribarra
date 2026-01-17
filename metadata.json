@@ -1,0 +1,7 @@
+{
+  "name": "Misión de la Iglesia del Señor Malalhue",
+  "description": "Aplicación integral para la gestión de calendarios, visitas, peticiones de oración y administración de la iglesia.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
